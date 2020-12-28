@@ -10,13 +10,13 @@
 
 (define-syntax-parser assign
   [(_ dest src)
-   #:with name (syntax-property this-syntax 'binding-name)
-   #:with data #`#,(syntax-property this-syntax 'binding-data)
+   #:with b-name (syntax-property this-syntax 'binding-name)
+   #:with b-data #`#,(syntax-property this-syntax 'binding-data)
    #'(begin
        (provide dest)
        (define dest src)
-       (provide name)
-       (define-syntax name data))])
+       (provide b-name)
+       (define-syntax b-name b-data))])
 
 (define-syntax-rule (show src)
   (println src))
