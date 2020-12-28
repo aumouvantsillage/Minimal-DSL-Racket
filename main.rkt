@@ -13,8 +13,8 @@
     (provide dest)
     (define dest src)))
 
-(define-syntax-rule (show name)
-  (println name))
+(define-syntax-rule (show src)
+  (println src))
 
 (define-syntax (use stx)
   (raise-syntax-error #f "should be used in a begin-mini-dsl form" stx))
@@ -45,7 +45,7 @@
 
   (define (check stx)
     (syntax-parse stx
-      #:literals [begin-mini-dsl assign show]
+      #:literals [begin-mini-dsl assign show use]
 
       [(begin-mini-dsl body ...)
        (with-scope sc
@@ -62,9 +62,12 @@
        #:with dest^ (bind-var! #'dest)
        #`(assign dest^ src)]
 
-      [(show src)
+      [(show src:id)
        #:with src^  (lookup-var #'src)
        #`(show src^)]
 
+      [(use _)
+       #'(begin)]
+
       [_
-       #'(begin)])))
+       stx])))
