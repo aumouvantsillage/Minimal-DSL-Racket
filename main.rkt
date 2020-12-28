@@ -8,10 +8,15 @@
 
 (provide (all-defined-out))
 
-(define-syntax-rule (assign dest src)
-  (begin
-    (provide dest)
-    (define dest src)))
+(define-syntax-parser assign
+  [(_ dest src)
+   #:with name (syntax-property this-syntax 'binding-name)
+   #:with data #`#,(syntax-property this-syntax 'binding-data)
+   #'(begin
+       (provide dest)
+       (define dest src)
+       (provide name)
+       (define-syntax name data))])
 
 (define-syntax-rule (show src)
   (println src))
@@ -34,14 +39,18 @@
   (define (bind-var! v)
     (define v^ (gensym))
     (bind! v (var v^))
-    ; (syntax-local-lift-provide v)
     v^)
 
   (define (lookup-var v)
-    (define v^ (lookup v var?))
+    (define v^ (lookup v)) ; var?)
     (unless v^
       (raise-syntax-error #f "variable not found" #'v))
     (var-name v^))
+
+  (define (decorate name stx)
+    (syntax-property
+      (syntax-property stx 'binding-name name)
+      'binding-data (lookup name)))
 
   (define (check stx)
     (syntax-parse stx
@@ -56,15 +65,15 @@
       [(assign dest src:id)
        #:with dest^ (bind-var! #'dest)
        #:with src^  (lookup-var #'src)
-       #`(assign dest^ src^)]
+       (decorate #'dest #'(assign dest^ src^))]
 
       [(assign dest src)
        #:with dest^ (bind-var! #'dest)
-       #`(assign dest^ src)]
+       (decorate #'dest #'(assign dest^ src))]
 
       [(show src:id)
        #:with src^  (lookup-var #'src)
-       #`(show src^)]
+       #'(show src^)]
 
       [(use _)
        #'(begin)]
