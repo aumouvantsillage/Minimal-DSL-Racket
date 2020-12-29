@@ -2,81 +2,76 @@
 
 (require
   syntax/parse/define
+  ee-lib/define
   (for-syntax
+    racket/syntax
     syntax/parse
     ee-lib))
 
 (provide (all-defined-out))
 
-(define-syntax-parser assign
-  [(_ dest src)
-   #:with b-name (syntax-property this-syntax 'binding-name)
-   #:with b-data #`#,(syntax-property this-syntax 'binding-data)
-   #'(begin
-       (provide dest)
-       (define dest src)
-       (provide b-name)
-       (define-syntax b-name b-data))])
-
-(define-syntax-rule (show src)
-  (println src))
-
-(define-syntax (use stx)
-  (raise-syntax-error #f "should be used in a begin-mini-dsl form" stx))
+(define-literal-forms
+  mini-dsl-lits
+  "should be used in a begin-mini-dsl form"
+  [use show assign])
 
 (define-syntax-parser begin-mini-dsl
   [(_ body ...)
-   (check (for/fold ([acc (syntax-local-introduce this-syntax)])
-                    ([it  (in-list (attribute body))])
-            (syntax-parse it
-              #:literals [use]
-              [(use path) (syntax-local-lift-require #'path acc)]
-              [_          acc])))])
+   #'(begin
+       (check-pass1 body) ...
+       (check-pass2 body) ...
+       (compile body) ...)])
 
 (begin-for-syntax
   (struct var (name))
 
-  (define (bind-var! v)
-    (define v^ (gensym))
-    (bind! v (var v^))
-    v^)
-
-  (define (lookup-var v)
-    (define v^ (lookup v)) ; var?)
-    (unless v^
-      (raise-syntax-error #f "variable not found" #'v))
+  (define (compile-var v)
+    (define v^ (lookup v))
     (var-name v^))
 
-  (define (decorate name stx)
-    (syntax-property
-      (syntax-property stx 'binding-name name)
-      'binding-data (lookup name)))
+  (define (check-ref v)
+    (when (not (lookup v var?))
+      (raise-syntax-error #f "unbound reference" v)))
 
-  (define (check stx)
+  (define (check-expr stx)
     (syntax-parse stx
-      #:literals [begin-mini-dsl assign show use]
+      [v:id     (check-ref #'v)]
+      [_:number (void)]))
 
-      [(begin-mini-dsl body ...)
-       (with-scope sc
-         #`(begin
-             #,@(for/list ([it (attribute body)])
-                  (check (add-scope it sc)))))]
+  (define (compile-expr stx)
+    (syntax-parse stx
+      [v:id     (compile-var #'v)]
+      [_:number this-syntax])))
 
-      [(assign dest src:id)
-       #:with dest^ (bind-var! #'dest)
-       #:with src^  (lookup-var #'src)
-       (decorate #'dest #'(assign dest^ src^))]
+(define-syntax check-pass1
+  (syntax-parser
+    #:literal-sets (mini-dsl-lits)
+    [(assign dest:id _)
+     (define/syntax-parse compiled-id (generate-temporary #'dest))
+     #`(begin
+         (define-syntax dest (var #'compiled-id))
+         (provide dest))]
+    [(use path)
+     #'(require path)]
+    [_
+     #'(begin)]))
 
-      [(assign dest src)
-       #:with dest^ (bind-var! #'dest)
-       (decorate #'dest #'(assign dest^ src))]
+(define-syntax check-pass2
+  (syntax-parser
+    #:literal-sets (mini-dsl-lits)
+    [(assign dest:id src:id) (check-expr #'src)]
+    [(show src:id) (check-ref #'src)]
+    [_ (void)])
+  #'(begin))
 
-      [(show src:id)
-       #:with src^  (lookup-var #'src)
-       #'(show src^)]
-
-      [(use _)
-       #'(begin)]
-
-      [_
-       stx])))
+(define-syntax compile
+  (syntax-parse stx
+    #:literal-sets (mini-dsl-lits)
+    [(assign dest:id src:id)
+     (define/syntax-parse dest-c (compile-var #'dest))
+     (define/syntax-parse src-c (compile-expr #'src))
+     #'(define dest-c src-c)]
+    [(show src:id)
+     #:with src-c (compile-var #'src)
+     #'(println src-c)]
+    [_ #'(begin)]))
