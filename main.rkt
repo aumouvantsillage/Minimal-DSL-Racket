@@ -3,6 +3,7 @@
 (require
   syntax/parse/define
   (for-syntax
+    racket/syntax
     syntax/parse
     ee-lib))
 
@@ -11,12 +12,10 @@
 (define-syntax-parser assign
   [(_ dest src)
    #:with b-name (syntax-property this-syntax 'binding-name)
-   #:with b-data #`#,(syntax-property this-syntax 'binding-data)
    #'(begin
-       (provide dest)
-       (define dest src)
        (provide b-name)
-       (define-syntax b-name b-data))])
+       (define dest src)
+       (define-syntax b-name (var #'dest)))])
 
 (define-syntax-rule (show src)
   (println src))
@@ -26,37 +25,40 @@
 
 (define-syntax-parser begin-mini-dsl
   [(_ body ...)
-   (check (for/fold ([acc (syntax-local-introduce this-syntax)])
-                    ([it  (in-list (attribute body))])
-            (syntax-parse it
-              #:literals [use]
-              [(use path) (syntax-local-lift-require #'path acc)]
-              [_          acc])))])
+   #`(begin
+       (compile-use body) ...
+       (compile-mini-dsl body ...))])
+
+(define-syntax-parser compile-use
+  #:literals [use]
+  [(_ (use path)) #'(require path)]
+  [_              #'(begin)])
+
+(define-syntax (compile-mini-dsl stx)
+  (check stx))
 
 (begin-for-syntax
   (struct var (name))
 
   (define (bind-var! v)
-    (define v^ (gensym))
+    (define v^ (generate-temporary v))
     (bind! v (var v^))
     v^)
 
   (define (lookup-var v)
-    (define v^ (lookup v)) ; var?)
+    (define v^ (lookup v var?))
     (unless v^
-      (raise-syntax-error #f "variable not found" #'v))
+      (raise-syntax-error #f "variable not found" v))
     (var-name v^))
 
   (define (decorate name stx)
-    (syntax-property
-      (syntax-property stx 'binding-name name)
-      'binding-data (lookup name)))
+    (syntax-property stx 'binding-name name))
 
   (define (check stx)
     (syntax-parse stx
-      #:literals [begin-mini-dsl assign show use]
+      #:literals [compile-mini-dsl assign show use]
 
-      [(begin-mini-dsl body ...)
+      [(compile-mini-dsl body ...)
        (with-scope sc
          #`(begin
              #,@(for/list ([it (attribute body)])
@@ -72,7 +74,7 @@
        (decorate #'dest #'(assign dest^ src))]
 
       [(show src:id)
-       #:with src^  (lookup-var #'src)
+       #:with src^ (lookup-var #'src)
        #'(show src^)]
 
       [(use _)
