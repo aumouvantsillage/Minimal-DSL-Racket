@@ -43,35 +43,35 @@
       [v:id     (compile-var #'v)]
       [_:number this-syntax])))
 
-(define-syntax check-pass1
-  (syntax-parser
+(define-syntax (check-pass1 stx)
+  (syntax-parse stx
     #:literal-sets (mini-dsl-lits)
-    [(assign dest:id _)
+    [(_ (assign dest:id _))
      (define/syntax-parse compiled-id (generate-temporary #'dest))
      #`(begin
          (define-syntax dest (var #'compiled-id))
          (provide dest))]
-    [(use path)
+    [(_ (use path))
      #'(require path)]
     [_
      #'(begin)]))
 
-(define-syntax check-pass2
-  (syntax-parser
+(define-syntax (check-pass2 stx)
+  (syntax-parse stx
     #:literal-sets (mini-dsl-lits)
     [(assign dest:id src:id) (check-expr #'src)]
     [(show src:id) (check-ref #'src)]
     [_ (void)])
   #'(begin))
 
-(define-syntax compile
+(define-syntax (compile stx)
   (syntax-parse stx
     #:literal-sets (mini-dsl-lits)
-    [(assign dest:id src:id)
-     (define/syntax-parse dest-c (compile-var #'dest))
+    [(_ (assign dest:id src))
+     (define/syntax-parse dest-c (syntax-local-introduce (compile-var #'dest)))
      (define/syntax-parse src-c (compile-expr #'src))
      #'(define dest-c src-c)]
-    [(show src:id)
+    [(_ (show src:id))
      #:with src-c (compile-var #'src)
      #'(println src-c)]
     [_ #'(begin)]))
